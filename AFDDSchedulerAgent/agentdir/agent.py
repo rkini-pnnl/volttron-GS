@@ -29,12 +29,14 @@ class AFDDSchedulerAgent(Agent):
     """
     This agent
 
-    write a description of the agent
+
     """
     def __init__(self, config_path, **kwargs):
         super(AFDDSchedulerAgent, self).__init__(**kwargs)
+        #list of class attributes.  Default values will be filled in from reading config file
+        #string attributes
         # Set up default configuration and config store
-        self.analysis_name = "Scheduler"
+        self.analysis_name = "analysis"
         self.schedule_time = "* 18 * * *"
         self.device = {
             "campus": "campus",
@@ -66,26 +68,33 @@ class AFDDSchedulerAgent(Agent):
             "conditions_list": None
         }
 
+        self.publish_topics = "analysis/campus/building/rtu1"
         self.device_topic_list = {}
         self.device_data = []
-        #self.device_topic_list = []
         self.subdevices_list = []
         self.device_status = False
         self.day = None
         self.condition_data = []
         self.rthr = 0
         self.device_name = []
+        self.device_true_time = 0
 
         self.default_config = utils.load_config(config_path)
         self.vip.config.set_default("config", self.default_config)
-        self.vip.config.subscribe(self.configure, actions=["NEW", "UPDATE"],\
+        self.vip.config.subscribe(self.configure, actions=["NEW", "UPDATE"],
                                   pattern="config")
 
     def configure(self, config_name, action, contents):
-        """
-        The main configuration callback.
+        '''
 
-        """
+        :param config_name:
+        :param action:
+        :param contents:
+        :return:
+
+        The main configuration callback.
+       '''
+
         _log.info('Received configuration {} signal: {}'.format(action, config_name))
         self.current_config = self.default_config.copy()
         self.current_config.update(contents)
@@ -98,7 +107,6 @@ class AFDDSchedulerAgent(Agent):
         self.interval = self.current_config.get("interval")
         self.timezone = self.current_config.get("timezone")
         self.condition_list = self.current_config.get("condition_list", {})
-        self.device_true_time = 0
 
         campus = self.device["campus"]
         building = self.device["building"]
@@ -120,7 +128,6 @@ class AFDDSchedulerAgent(Agent):
             _log.error('Error configuring signal: {}'.format(e))
 
         date_today = datetime.utcnow().astimezone(dateutil.tz.gettz(self.timezone))
-        print(date_today)
         if date_today in holidays.US(years=2020) or date_today.weekday() == 5 and 6:
             schedule_time = "* * * * *"
             self.core.schedule(cron(schedule_time), self.run_schedule)
@@ -128,27 +135,37 @@ class AFDDSchedulerAgent(Agent):
             self.core.schedule(cron(self.schedule_time), self.run_schedule)
 
     def run_schedule(self):
+        '''
+
+        :return:
+        '''
         _log.info("current date time {}".format(datetime.utcnow()))
-        try:
-            for device in self.device_topic_list:
+
+        for device in self.device_topic_list:
+            try:
                 _log.info("Subscribing to " + device)
                 self.vip.pubsub.subscribe(peer="pubsub", prefix=device,
                                           callback=self.on_data)
-        except Exception as e:
-            _log.error('Error configuring signal: {}'.format(e))
-            _log.error("Missing {} data to execute the AIRx process".format(device))
-        #self.core.periodic(self.interval, self.on_schedule)
+            except Exception as e:
+                _log.error('Error configuring signal: {}'.format(e))
+                _log.error("Missing {} data to execute the AIRx process".format(device))
+            # self.core.periodic(self.interval, self.on_schedule)
         if self.condition_data:
             self.on_schedule()
 
     def on_data(self, peer, sender, bus, topic, headers, message):
-        """
-        Subscribe device data.
+        '''
 
-        """
+        :param peer:
+        :param sender:
+        :param bus:
+        :param topic:
+        :param headers:
+        :param message:
+        :return:
+        '''
         self.condition_data = []
-        self.input_datetime = parse(headers.get("Date"))\
-            .astimezone(dateutil.tz.gettz(self.timezone))
+        self.input_datetime = parse(headers.get("Date")).astimezone(dateutil.tz.gettz(self.timezone))
         condition_args = self.condition_list.get("condition_args")
         symbols(condition_args)
 
@@ -158,14 +175,16 @@ class AFDDSchedulerAgent(Agent):
         _log.info("condition data {}".format(self.condition_data))
 
     def on_schedule(self):
-        """
+        '''
+
+        :return:
+
         execute the condition of the device, If all condition are true then add time into true_time.
         If true time is excedd the threshold time (mht) flag the excess operation
-
-        """
+        '''
         conditions = self.condition_list.get("conditions")
-        if all([parse_expr(condition).subs(self.condition_data)\
-                   for condition in conditions]):
+        if all([parse_expr(condition).subs(self.condition_data)
+                for condition in conditions]):
             self.device_true_time += self.interval
             self.device_status = True
             _log.debug('All condition true time {}'.format(self.device_true_time))
@@ -173,7 +192,7 @@ class AFDDSchedulerAgent(Agent):
             self.device_status = False
             _log.debug("one of the condition is false")
 
-        rthr = self.device_true_time/ 3600
+        rthr = self.device_true_time / 3600
         if rthr > self.mht:
             self.excess_operation = True
 
@@ -181,11 +200,22 @@ class AFDDSchedulerAgent(Agent):
             self.device_true_time = 0
             for device_topic in self.device_topic_list:
                 print(device_topic)
-                self.publish(device_topic)
+                self.publish_hourly_report(device_topic)
 
-    def publish(self,device_topic):
-        headers = {'Date': utils.format_timestamp(datetime.utcnow()\
-                                                  .astimezone(dateutil.tz.gettz(self.timezone)))}
+        for device_topic in self.device_topic_list:
+            print(device_topic)
+            self.publish_hourly_report(device_topic)
+
+    def publish_hourly_report(self, device_topic):
+        '''
+
+        :param device_topic:
+        :return:
+        Publish record of the analysis"
+        '''
+
+        headers = {'Date': utils.format_timestamp(
+            datetime.utcnow().astimezone(dateutil.tz.gettz(self.timezone)))}
         message = [
             {'excess_operation': bool(self.excess_operation),
              'device_status': bool(self.device_status),
@@ -205,25 +235,40 @@ class AFDDSchedulerAgent(Agent):
         except Exception as e:
             _log.error("In Publish: {}".format(str(e)))
 
+    def publish_daily_report(self, device_topic):
+        headers = {'Date': utils.format_timestamp(
+            datetime.utcnow().astimezone(dateutil.tz.gettz(self.timezone)))}
+        message = [
+            {'excess_operation': bool(self.excess_operation),
+             'device_status': bool(self.device_status),
+             'device_true_time': int(self.device_true_time)
+             },
+            {'excess_operation': {'units': 'None', 'tz': 'UTC', 'data_type': 'bool'},
+             'device_status': {'units': 'None', 'tz': 'UTC', 'data_type': 'bool'},
+             'device_true_time': {'units': 'seconds', 'tz': 'UTC', 'data_type': 'integer'}
+             }
+        ]
+        device_topic = device_topic.replace("all", "report/all")
+        try:
+            self.vip.pubsub.publish(peer='pubsub',
+                                    topic=device_topic,
+                                    message=message,
+                                    headers=headers)
+        except Exception as e:
+            _log.error("In Publish: {}".format(str(e)))
+        pass
+
     def is_midnight(self, current_time):
-        midnight = datetime.combine(current_time, time.max).\
+        midnight = datetime.combine(current_time, time.max). \
             astimezone(dateutil.tz.gettz(self.timezone))
         _log.debug("Midnight time {}".format(midnight))
-        next_time = current_time+ timedelta(seconds=self.interval)
+        next_time = current_time + timedelta(seconds=self.interval)
         _log.debug("next interval time {}".format(next_time))
         if midnight > next_time:
             return False
         else:
             return True
 
-    def _get_class(kls):
-        """Get driven application information."""
-        parts = kls.split(".")
-        module = ".".join(parts[:-1])
-        main_mod = __import__(module)
-        for comp in parts[1:]:
-            main_mod = getattr(main_mod, comp)
-        return main_mod
 
 def main(argv=sys.argv):
     """Main method called by the eggsecutable."""
