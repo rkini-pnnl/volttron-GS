@@ -37,7 +37,7 @@ class AFDDSchedulerAgent(Agent):
         #string attributes
         # Set up default configuration and config store
         self.analysis_name = "analysis"
-        self.schedule_time = "* 18 * * *"
+        self.schedule_time = "* * * * *"
         self.device = {
             "campus": "campus",
             "building": "building",
@@ -200,13 +200,13 @@ class AFDDSchedulerAgent(Agent):
             self.device_true_time = 0
             for device_topic in self.device_topic_list:
                 print(device_topic)
-                self.publish_hourly_report(device_topic)
+                self.publish_daily_report(device_topic)
 
         for device_topic in self.device_topic_list:
             print(device_topic)
-            self.publish_hourly_report(device_topic)
+            self.publish_report(device_topic)
 
-    def publish_hourly_report(self, device_topic):
+    def publish_report(self, device_topic):
         '''
 
         :param device_topic:
