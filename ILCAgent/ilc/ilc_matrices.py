@@ -84,7 +84,8 @@ def extract_criteria(filename):
     """
     criteria_labels = {}
     criteria_matrix = {}
-    config_matrix = utils.load_config(filename)
+    # config_matrix = utils.load_config(filename)
+    config_matrix = filename
     # check if file has been updated or uses old format
     _log.debug("CONFIG_MATRIX: {}".format(config_matrix))
     if "curtail" not in config_matrix.keys() and "augment" not in config_matrix.keys():
@@ -108,7 +109,7 @@ def extract_criteria(filename):
                 criteria_matrix[state][row][col] = float(config_matrix[state][j][k])
                 criteria_matrix[state][col][row] = float(1.0 / criteria_matrix[state][row][col])
 
-    return criteria_labels, criteria_matrix
+    return criteria_labels, criteria_matrix, list(config_matrix.keys())
 
 
 def calc_column_sums(criteria_matrix):

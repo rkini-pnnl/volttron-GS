@@ -78,6 +78,7 @@ import scipy
 import pytz
 import re
 
+
 utils.setup_logging()
 _log = logging.getLogger(__name__)
 UTC_TZ = pytz.timezone('UTC')
@@ -130,6 +131,8 @@ class Device:
         :param subdevice_points:
         """
         self.device = device
+        if not subdevice_points:
+            subdevice = ""
         base_record_list = ["tnc", site, building, device, subdevice, "update_model"]
         base_record_list = list(filter(lambda a: a != "", base_record_list))
         self.record_topic = '/'.join(base_record_list)
@@ -297,7 +300,8 @@ class Regression:
                 process_df = df
 
             if self.debug:
-                filename = '{}/{}-hourly-{}-{}.csv'.format(WORKING_DIR, device, i, format_timestamp(dt.now()))
+                filename = '{}/{}-hourly-{}-{}.csv'.format(WORKING_DIR, device.replace('/', '_'),
+                                                           i, format_timestamp(dt.now()))
                 with open(filename, 'w') as outfile:
                     process_df.to_csv(outfile, mode='w', index=True)
 
@@ -357,7 +361,7 @@ class Regression:
         dependent, independent = patsy.dmatrices(formula, df, return_type='dataframe')
         y = dependent[list(self.model_dependent)[0]]
         if not any(x in self.model_independent.keys() for x in ['Intercept', 'intercept']):
-            x = independent.drop(columns=['Intercept', 'intercept'])
+            x = independent.drop(columns=['Intercept'])
         else:
             x = independent.rename(columns={'Intercept': self.intercept})
             x = x.rename(columns={'intercept': self.intercept})
@@ -652,7 +656,7 @@ class RegressionAgent(Agent):
             result = result.to_dict(orient='list')
             self.coefficient_results[device.record_topic] = result
             if self.debug:
-                with open('{}/{}_results.json'.format(WORKING_DIR, name), 'w+') as outfile:
+                with open('{}/{}_results.json'.format(WORKING_DIR, name.replace('/', '_')), 'w+') as outfile:
                     json.dump(result, outfile, indent=4, separators=(',', ': '))
                 _log.debug('*** Finished outputting coefficients ***')
             self.publish_coefficients(device.record_topic, result)
@@ -707,10 +711,11 @@ class RegressionAgent(Agent):
                                            count=1000,
                                            external_platform=self.external_platform).get(timeout=300)
                 _log.debug(result)
-                if not bool(result['values']):
+                if not bool(result) or "values" not in result or \
+                        ("values" in result and not bool(result["values"])):
                     _log.debug('ERROR: empty RPC return for '
                                'coefficient *%s* at %s', token, rpc_start)
-                    continue
+                    break
                 # TODO:  check if enough data is present and compensate for significant missing data
                 data = pd.DataFrame(result['values'], columns=['Date', token])
                 data['Date'] = pd.to_datetime(data['Date'])
@@ -754,7 +759,7 @@ class RegressionAgent(Agent):
         except Exception as e:
             _log.error('Failed to convert Date column to localtime - {}'.format(e))
         if self.debug:
-            filename = '{}/{}-{} - {}.csv'.format(WORKING_DIR, self.start, self.end, device)
+            filename = '{}/{}-{} - {}.csv'.format(WORKING_DIR, self.start, self.end, device.replace('/', '_'))
             try:
                 with open(filename, 'w+') as outfile:
                     df.to_csv(outfile, mode='a', index=True)
